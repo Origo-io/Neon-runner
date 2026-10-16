@@ -53,13 +53,20 @@
             padding: 20px;
         }
         #scoreBoard {
-            font-size: 28px;
+            font-size: 24px;
             font-weight: bold;
             color: #00ffcc;
             text-shadow: 0 0 10px rgba(0, 255, 204, 0.6);
             text-align: center;
             pointer-events: auto;
             word-break: break-all;
+            line-height: 1.4;
+        }
+        #highScoreText {
+            font-size: 16px;
+            color: #ff0055;
+            text-shadow: 0 0 8px rgba(255, 0, 85, 0.5);
+            display: block;
         }
         #gameOverScreen {
             position: absolute;
@@ -92,7 +99,7 @@
         p {
             font-size: 18px;
             color: #ffffff;
-            margin-bottom: 30px;
+            margin-bottom: 10px;
         }
         #finalScore {
             font-weight: bold;
@@ -101,6 +108,14 @@
             word-break: break-all;
             padding: 0 20px;
             text-align: center;
+            margin-bottom: 5px;
+        }
+        #finalHighScore {
+            font-size: 18px;
+            color: #ff0055;
+            text-shadow: 0 0 8px rgba(255, 0, 85, 0.5);
+            margin-bottom: 30px;
+            font-weight: bold;
         }
         #restartBtn {
             padding: 14px 40px;
@@ -135,7 +150,10 @@
         <canvas id="gameCanvas"></canvas>
         
         <div class="ui-layer">
-            <div id="scoreBoard">SKOR: 0</div>
+            <div id="scoreBoard">
+                <div>SKOR: 0</div>
+                <span id="highScoreText">TERTINGGI: 0</span>
+            </div>
             <div class="controls-hint">Ketuk Kiri/Kanan Layar atau gunakan Panah/A-D</div>
         </div>
 
@@ -143,6 +161,7 @@
             <h1>Game Over</h1>
             <p>Skor Akhir Anda:</p>
             <p id="finalScore">0</p>
+            <div id="finalHighScore">Tertinggi: 0</div>
             <button id="restartBtn">MAIN LAGI</button>
         </div>
     </div>
@@ -151,8 +170,10 @@
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         const scoreBoard = document.getElementById('scoreBoard');
+        const highScoreText = document.getElementById('highScoreText');
         const gameOverScreen = document.getElementById('gameOverScreen');
         const finalScore = document.getElementById('finalScore');
+        const finalHighScore = document.getElementById('finalHighScore');
         const restartBtn = document.getElementById('restartBtn');
 
         // Target resolusi internal canvas untuk konsistensi game logic
@@ -161,13 +182,35 @@
         canvas.width = INTERNAL_WIDTH;
         canvas.height = INTERNAL_HEIGHT;
 
+        // Load High Score dari localStorage saat game dimuat pertama kali
+        let highScore = 0n;
+        if (localStorage.getItem('neon_runner_highscore')) {
+            try {
+                highScore = BigInt(localStorage.getItem('neon_runner_highscore'));
+            } catch(e) {
+                highScore = 0n;
+            }
+        }
+
         // System state menggunakan BigInt untuk skor tak terbatas
         let score = 0n;
         let scoreTimer = 0;
         let isGameOver = false;
-        let gameSpeed = 5;
+        
+        // Atur kecepatan awal dan batasan mekanik game
+        const initialSpeed = 5;
+        let gameSpeed = initialSpeed;
         const maxSpeed = 22;
-        const acceleration = 0.0005;
+        
+        // Peningkatan kecepatan dinamis berdasarkan perolehan skor
+        function updateDifficulty() {
+            let bonusSpeed = Number(score) * 0.005; 
+            gameSpeed = initialSpeed + bonusSpeed;
+            if (gameSpeed > maxSpeed) gameSpeed = maxSpeed;
+
+            // Mempercepat munculnya rintangan (spawn interval mengecil) saat game semakin cepat
+            spawnInterval = Math.max(40, 100 - Math.floor(bonusSpeed * 4));
+        }
 
         // Struktur jalur (2 Lane)
         const laneWidth = INTERNAL_WIDTH / 2;
@@ -188,7 +231,6 @@
             
             update() {
                 this.targetX = lanes[this.lane];
-                // Efek smooth movement perpindahan jalur
                 this.x += (this.targetX - this.x) * this.speed;
             },
             
@@ -196,25 +238,20 @@
                 ctx.save();
                 ctx.translate(this.x, this.y);
 
-                // Bayangan Neon (Glow)
                 ctx.shadowBlur = 15;
                 ctx.shadowColor = '#00ffcc';
 
-                // Body Mobil Utama (Cyberpunk cyan)
                 ctx.fillStyle = '#00ffcc';
                 ctx.fillRect(-this.width/2, -this.height/2, this.width, this.height);
 
-                // Kaca Depan (Gelap)
                 ctx.fillStyle = '#0d0e15';
                 ctx.fillRect(-this.width/2 + 6, -this.height/2 + 15, this.width - 12, 20);
 
-                // Lampu Neon Depan
                 ctx.shadowColor = '#ffffff';
                 ctx.fillStyle = '#ffffff';
                 ctx.fillRect(-this.width/2 + 4, -this.height/2, 8, 4);
                 ctx.fillRect(this.width/2 - 12, -this.height/2, 8, 4);
 
-                // Lampu Belakang (Merah)
                 ctx.shadowColor = '#ff0055';
                 ctx.fillStyle = '#ff0055';
                 ctx.fillRect(-this.width/2 + 4, this.height/2 - 4, 8, 4);
@@ -227,7 +264,7 @@
         // Rintangan (Obstacles)
         let obstacles = [];
         let spawnTimer = 0;
-        let spawnInterval = 100; // interval frame pemunculan rintangan
+        let spawnInterval = 100;
 
         class Obstacle {
             constructor() {
@@ -236,12 +273,11 @@
                 this.y = -60;
                 this.width = 50;
                 this.height = 50;
-                // Jenis: 'hole' (statis) atau 'car' (bergerak turun lebih cepat)
                 this.type = Math.random() > 0.5 ? 'hole' : 'car';
                 
                 if (this.type === 'car') {
                     this.height = 75;
-                    this.extraSpeed = 2; // Mobil lawan melaju turun ekstra cepat
+                    this.extraSpeed = 2;
                 } else {
                     this.width = 55;
                     this.height = 35;
@@ -257,87 +293,51 @@
                 ctx.save();
                 ctx.translate(this.x, this.y);
 
-                if (this.type === 'hole') {
-                    // Rintangan Lubang Jalan (Neon Kuning/Oranye)
-                    ctx.shadowBlur = 10;
-                    ctx.shadowColor = '#ffaa00';
-                    ctx.strokeStyle = '#ffaa00';
-                    ctx.lineWidth = 3;
-                    
-                    // Gambar Elips Lubang
-                    ctx.beginPath();
-                    ctx.ellipse(0, 0, this.width/2, this.height/2, 0, 0, Math.PI * 2);
-                    ctx.stroke();
-
-                    // Garis silang di dalam lubang (efek warning sign)
-                    ctx.beginPath();
-                    ctx.moveTo(-this.width/3, 0);
-                    ctx.lineTo(this.width/3, 0);
-                    ctx.stroke();
-                } else {
-                    // Rintangan Mobil Lawan Arah (Neon Magenta/Pink)
-                    ctx.shadowBlur = 15;
+                ctx.shadowBlur = 12;
+                if (this.type === 'car') {
                     ctx.shadowColor = '#ff0055';
                     ctx.fillStyle = '#ff0055';
                     ctx.fillRect(-this.width/2, -this.height/2, this.width, this.height);
-
-                    // Kaca Depan (Menghadap ke bawah)
-                    ctx.fillStyle = '#15161e';
+                    
+                    ctx.fillStyle = '#0d0e15';
                     ctx.fillRect(-this.width/2 + 6, this.height/2 - 35, this.width - 12, 20);
-
-                    // Lampu Depan Mobil Lawan
-                    ctx.shadowColor = '#ffff00';
-                    ctx.fillStyle = '#ffff00';
-                    ctx.fillRect(-this.width/2 + 4, this.height/2 - 4, 8, 4);
-                    ctx.fillRect(this.width/2 - 12, this.height/2 - 4, 8, 4);
+                } else {
+                    ctx.shadowColor = '#ffcc00';
+                    ctx.fillStyle = '#ffcc00';
+                    ctx.fillRect(-this.width/2, -this.height/2, this.width, this.height);
+                    ctx.fillStyle = '#0d0e15';
+                    ctx.fillRect(-this.width/2 + 5, -this.height/2 + 5, this.width - 10, this.height - 10);
                 }
 
                 ctx.restore();
             }
         }
 
-        // Background Bergerak (Markah Jalan Neon)
-        let roadLinesY = 0;
+        let backgroundY = 0;
+        function drawBackground() {
+            backgroundY += gameSpeed;
+            if (backgroundY >= 60) backgroundY = 0;
 
-        function drawRoad() {
-            // Gambar pembatas jalan di tengah
-            ctx.save();
-            ctx.shadowBlur = 8;
-            ctx.shadowColor = rgbaColor(255, 255, 255, 0.2);
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
-            ctx.lineWidth = 4;
-            
-            // Garis Kiri Luar & Kanan Luar
+            ctx.strokeStyle = 'rgba(0, 255, 204, 0.08)';
+            ctx.lineWidth = 2;
+
+            ctx.setLineDash();
             ctx.beginPath();
-            ctx.moveTo(0, 0); ctx.lineTo(0, INTERNAL_HEIGHT);
-            ctx.moveTo(INTERNAL_WIDTH, 0); ctx.lineTo(INTERNAL_WIDTH, INTERNAL_HEIGHT);
+            ctx.moveTo(INTERNAL_WIDTH / 2, 0);
+            ctx.lineTo(INTERNAL_WIDTH / 2, INTERNAL_HEIGHT);
             ctx.stroke();
+            ctx.setLineDash([]);
 
-            // Efek Animasi Garis Putus-putus Tengah
-            ctx.strokeStyle = 'rgba(0, 255, 204, 0.3)';
-            ctx.lineWidth = 6;
-            ctx.setLineDash([40, 40]);
-            ctx.lineDashOffset = -roadLinesY;
-            ctx.beginPath();
-            ctx.moveTo(laneWidth, 0);
-            ctx.lineTo(laneWidth, INTERNAL_HEIGHT);
-            ctx.stroke();
-            ctx.restore();
-
-            // Gerakkan markah jalan
-            roadLinesY += gameSpeed;
-            if (roadLinesY >= 80) {
-                roadLinesY = 0;
+            ctx.strokeStyle = 'rgba(0, 255, 204, 0.04)';
+            for (let y = backgroundY - 60; y < INTERNAL_HEIGHT; y += 60) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(INTERNAL_WIDTH, y);
+                ctx.stroke();
             }
         }
 
-        function rgbaColor(r, g, b, a) {
-            return `rgba(${r},${g},${b},${a})`;
-        }
-
-        // Logika Deteksi Tabrakan (AABB Collision Detection)
         function checkCollision(rect1, rect2) {
-            // Hitung bounding box sebenarnya dari koordinat anchor center
             return (
                 rect1.x - rect1.width/2 < rect2.x + rect2.width/2 &&
                 rect1.x + rect1.width/2 > rect2.x - rect2.width/2 &&
@@ -346,119 +346,111 @@
             );
         }
 
-        // Input Handlers (Touch & Keyboard)
-        function handleInput(side) {
-            if (isGameOver) return;
-            if (side === 'left') {
-                player.lane = 0;
-            } else if (side === 'right') {
-                player.lane = 1;
-            }
+        function updateUI() {
+            scoreBoard.innerHTML = `<div>SKOR: ${score}</div><span id="highScoreText">TERTINGGI: ${highScore}</span>`;
         }
 
-        // Input Layar Sentuh (Bagi Layar 50% Kiri & 50% Kanan)
-        window.addEventListener('touchstart', (e) => {
-            const touchX = e.touches[0].clientX;
-            const screenWidth = window.innerWidth;
-            if (touchX < screenWidth / 2) {
-                handleInput('left');
-            } else {
-                handleInput('right');
-            }
-        }, { passive: true });
-
-        // Alternatif Input Keyboard untuk Laptop/Desktop (Arrow & A/D)
-        window.addEventListener('keydown', (e) => {
-            if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') {
-                handleInput('left');
-            } else if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') {
-                handleInput('right');
-            }
-        });
-
-        // Loop Game Utama
-        function gameLoop() {
-            if (isGameOver) return;
-
-            // Bersihkan Canvas
-            ctx.clearRect(0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT);
-
-            // 1. Gambar Background Jalanan
-            drawRoad();
-
-            // 2. Update & Gambar Pemain
-            player.update();
-            player.draw();
-
-            // 3. Manajemen Rintangan
-            spawnTimer++;
-            if (spawnTimer >= spawnInterval) {
-                obstacles.push(new Obstacle());
-                spawnTimer = 0;
-                // Mengurangi interval spawn secara bertahap seiring bertambahnya kecepatan
-                spawnInterval = Math.max(40, 100 - Math.floor(gameSpeed * 2));
-            }
-
-            for (let i = obstacles.length - 1; i >= 0; i--) {
-                const obs = obstacles[i];
-                obs.update();
-                obs.draw();
-
-                // Cek Tabrakan
-                if (checkCollision(player, obs)) {
-                    triggerGameOver();
-                    return;
-                }
-
-                // Hapus rintangan yang lolos ke bawah layar
-                if (obs.y > INTERNAL_HEIGHT + 60) {
-                    obstacles.splice(i, 1);
-                }
-            }
-
-            // 4. Update Skor & Tingkat Kesulitan
-            scoreTimer++;
-            if (scoreTimer >= 5) { // Naikkan skor setiap beberapa frame
-                score += 10n;      // Menggunakan BigInt safely
-                scoreBoard.innerText = "SKOR: " + score.toString();
-                scoreTimer = 0;
-            }
-
-            if (gameSpeed < maxSpeed) {
-                gameSpeed += acceleration;
-            }
-
-            requestAnimationFrame(gameLoop);
-        }
-
-        // Trigger Game Over
         function triggerGameOver() {
             isGameOver = true;
+            if (score > highScore) {
+                highScore = score;
+                localStorage.setItem('neon_runner_highscore', highScore.toString());
+            }
+
             finalScore.innerText = score.toString();
+            finalHighScore.innerText = `Tertinggi: ${highScore.toString()}`;
             gameOverScreen.classList.add('active');
         }
 
-        // Reset & Mulai Ulang Game
         function resetGame() {
             score = 0n;
             scoreTimer = 0;
-            gameSpeed = 5;
+            gameSpeed = initialSpeed;
             spawnInterval = 100;
-            spawnTimer = 0;
             obstacles = [];
+            spawnTimer = 0;
             player.lane = 0;
             player.x = lanes[0];
-            player.targetX = lanes[0];
             isGameOver = false;
-            scoreBoard.innerText = "SKOR: 0";
             gameOverScreen.classList.remove('active');
-            gameLoop();
+            updateUI();
         }
 
-        restartBtn.addEventListener('click', resetGame);
+        function gameLoop() {
+            ctx.clearRect(0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT);
 
-        // Menjalankan game untuk pertama kali
-        resetGame();
+            drawBackground();
+
+            if (!isGameOver) {
+                scoreTimer++;
+                if (scoreTimer >= 8) {
+                    score += 1n;
+                    scoreTimer = 0;
+                    updateDifficulty();
+                    updateUI();
+                }
+
+                player.update();
+
+                spawnTimer++;
+                if (spawnTimer >= spawnInterval) {
+                    obstacles.push(new Obstacle());
+                    spawnTimer = 0;
+                }
+
+                for (let i = obstacles.length - 1; i >= 0; i--) {
+                    obstacles[i].update();
+                    obstacles[i].draw();
+
+                    if (checkCollision(player, obstacles[i])) {
+                        triggerGameOver();
+                    }
+
+                    if (obstacles[i] && obstacles[i].y > INTERNAL_HEIGHT + 60) {
+                        obstacles.splice(i, 1);
+                    }
+                }
+            } else {
+                for (let obs of obstacles) {
+                    obs.draw();
+                }
+            }
+
+            player.draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        function moveLeft() {
+            if (!isGameOver && player.lane > 0) player.lane--;
+        }
+
+        function moveRight() {
+            if (!isGameOver && player.lane < 1) player.lane++;
+        }
+
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') moveLeft();
+            if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') moveRight();
+        });
+
+        window.addEventListener('touchstart', (e) => {
+            if (isGameOver) return;
+            const touchX = e.touches[0].clientX;
+            const screenWidth = window.innerWidth;
+            
+            if (touchX < screenWidth / 2) {
+                moveLeft();
+            } else {
+                moveRight();
+            }
+        });
+
+        restartBtn.addEventListener('click', () => {
+            resetGame();
+        });
+
+        updateUI();
+        gameLoop();
     </script>
 </body>
 </html>
